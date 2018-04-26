@@ -1,10 +1,13 @@
+import string
 
 PAD = 0
-UNK = 1
-BOS = 2
-EOS = 3
+BOS = 1
+EOS = 2
+BLK = 3
 
-PAD_WORD = '<blank>'
-UNK_WORD = '<unk>'
-BOS_WORD = '<s>'
-EOS_WORD = '</s>'
+PAD_CHAR = '<pad>'
+BOS_CHAR = '<s>'
+EOS_CHAR = '</s>'
+BLK_CHAR = ' '
+
+VOCAB = [PAD_CHAR, BOS_CHAR, EOS_CHAR, BLK_CHAR] + list(string.ascii_lowercase) + list(string.digits)

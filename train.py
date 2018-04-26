@@ -183,7 +183,6 @@ def main():
     parser.add_argument('-n_warmup_steps', type=int, default=4000)
 
     parser.add_argument('-dropout', type=float, default=0.1)
-    parser.add_argument('-embs_share_weight', action='store_true')
     parser.add_argument('-proj_share_weight', action='store_true')
 
     parser.add_argument('-log', default=None)
@@ -230,11 +229,10 @@ def main():
     print(opt)
 
     transformer = Transformer(
-        opt.src_vocab_size,
         opt.tgt_vocab_size,
-        opt.max_token_seq_len,
+        opt.n_src_max_seq,
+        opt.n_tgt_max_seq,
         proj_share_weight=opt.proj_share_weight,
-        embs_share_weight=opt.embs_share_weight,
         d_k=opt.d_k,
         d_v=opt.d_v,
         d_model=opt.d_model,

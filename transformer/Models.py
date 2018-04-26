@@ -5,6 +5,7 @@ import numpy as np
 import transformer.Constants as Constants
 from transformer.Modules import BottleLinear as Linear
 from transformer.Layers import EncoderLayer, DecoderLayer
+from transformer.vgg import vgg11_bn
 
 __author__ = "Yu-Hsiang Huang"
 
@@ -20,12 +21,12 @@ def position_encoding_init(n_position, d_pos_vec):
     position_enc[1:, 1::2] = np.cos(position_enc[1:, 1::2]) # dim 2i+1
     return torch.from_numpy(position_enc).type(torch.FloatTensor)
 
-def get_attn_padding_mask(seq_q, seq_k):
+def get_attn_padding_mask(seq_pos_q, seq_pos_k):
     ''' Indicate the padding-related part to mask '''
-    assert seq_q.dim() == 2 and seq_k.dim() == 2
-    mb_size, len_q = seq_q.size()
-    mb_size, len_k = seq_k.size()
-    pad_attn_mask = seq_k.data.eq(Constants.PAD).unsqueeze(1)   # bx1xsk
+    assert seq_pos_q.dim() == 2 and seq_pos_k.dim() == 2
+    mb_size, len_q = seq_pos_q.size()
+    mb_size, len_k = seq_pos_k.size()
+    pad_attn_mask = seq_pos_k.data.eq(Constants.PAD).unsqueeze(1)   # bx1xsk
     pad_attn_mask = pad_attn_mask.expand(mb_size, len_q, len_k) # bxsqxsk
     return pad_attn_mask
 
@@ -42,9 +43,8 @@ def get_attn_subsequent_mask(seq):
 class Encoder(nn.Module):
     ''' A encoder model with self attention mechanism. '''
 
-    def __init__(
-            self, n_src_vocab, n_max_seq, n_layers=6, n_head=8, d_k=64, d_v=64,
-            d_word_vec=512, d_model=512, d_inner_hid=1024, dropout=0.1):
+    def __init__(self, n_max_seq, n_layers=6, n_head=8, d_k=64, d_v=64, d_word_vec=512, d_model=512, d_inner_hid=1024,
+                 dropout=0.1):
 
         super(Encoder, self).__init__()
 
@@ -55,15 +55,18 @@ class Encoder(nn.Module):
         self.position_enc = nn.Embedding(n_position, d_word_vec, padding_idx=Constants.PAD)
         self.position_enc.weight.data = position_encoding_init(n_position, d_word_vec)
 
-        self.src_word_emb = nn.Embedding(n_src_vocab, d_word_vec, padding_idx=Constants.PAD)
+        self.src_image_emb = vgg11_bn(d_word_vec, pretrained=True)
 
         self.layer_stack = nn.ModuleList([
             EncoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, dropout=dropout)
             for _ in range(n_layers)])
 
     def forward(self, src_seq, src_pos, return_attns=False):
+        batch, seq_length, channel, height, width = src_seq.size()
+        src_seq = src_seq.view(-1, channel, height, width)
         # Word embedding look up
-        enc_input = self.src_word_emb(src_seq)
+        enc_input = self.src_image_emb(src_seq)
+        enc_input = enc_input.view(batch, seq_length, -1)
 
         # Position Encoding addition
         enc_input += self.position_enc(src_pos)
@@ -71,7 +74,7 @@ class Encoder(nn.Module):
             enc_slf_attns = []
 
         enc_output = enc_input
-        enc_slf_attn_mask = get_attn_padding_mask(src_seq, src_seq)
+        enc_slf_attn_mask = get_attn_padding_mask(src_pos, src_pos)
         for enc_layer in self.layer_stack:
             enc_output, enc_slf_attn = enc_layer(
                 enc_output, slf_attn_mask=enc_slf_attn_mask)
@@ -143,17 +146,15 @@ class Transformer(nn.Module):
     ''' A sequence to sequence model with attention mechanism. '''
 
     def __init__(
-            self, n_src_vocab, n_tgt_vocab, n_max_seq, n_layers=6, n_head=8,
+            self, n_tgt_vocab, n_src_max_seq, n_tgt_max_seq, n_layers=6, n_head=8,
             d_word_vec=512, d_model=512, d_inner_hid=1024, d_k=64, d_v=64,
-            dropout=0.1, proj_share_weight=True, embs_share_weight=True):
+            dropout=0.1, proj_share_weight=True):
 
         super(Transformer, self).__init__()
-        self.encoder = Encoder(
-            n_src_vocab, n_max_seq, n_layers=n_layers, n_head=n_head,
-            d_word_vec=d_word_vec, d_model=d_model,
-            d_inner_hid=d_inner_hid, dropout=dropout)
+        self.encoder = Encoder(n_src_max_seq, n_layers=n_layers, n_head=n_head, d_word_vec=d_word_vec, d_model=d_model,
+                               d_inner_hid=d_inner_hid, dropout=dropout)
         self.decoder = Decoder(
-            n_tgt_vocab, n_max_seq, n_layers=n_layers, n_head=n_head,
+            n_tgt_vocab, n_tgt_max_seq, n_layers=n_layers, n_head=n_head,
             d_word_vec=d_word_vec, d_model=d_model,
             d_inner_hid=d_inner_hid, dropout=dropout)
         self.tgt_word_proj = Linear(d_model, n_tgt_vocab, bias=False)
@@ -167,13 +168,6 @@ class Transformer(nn.Module):
             # Share the weight matrix between tgt word embedding/projection
             assert d_model == d_word_vec
             self.tgt_word_proj.weight = self.decoder.tgt_word_emb.weight
-
-        if embs_share_weight:
-            # Share the weight matrix between src/tgt word embeddings
-            # assume the src/tgt word vec size are the same
-            assert n_src_vocab == n_tgt_vocab, \
-            "To share word embedding table, the vocabulary size of src/tgt shall be the same."
-            self.encoder.src_word_emb.weight = self.decoder.tgt_word_emb.weight
 
     def get_trainable_parameters(self):
         ''' Avoid updating the position encoding '''
