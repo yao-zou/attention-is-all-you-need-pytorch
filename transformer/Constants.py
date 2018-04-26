@@ -10,4 +10,4 @@ BOS_CHAR = '<s>'
 EOS_CHAR = '</s>'
 BLK_CHAR = ' '
 
-VOCAB = [PAD_CHAR, BOS_CHAR, EOS_CHAR, BLK_CHAR] + list(string.ascii_lowercase) + list(string.digits)
+VOCABULARY = [PAD_CHAR, BOS_CHAR, EOS_CHAR, BLK_CHAR] + list(string.ascii_lowercase) + list(string.digits)
