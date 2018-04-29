@@ -43,7 +43,7 @@ def get_attn_subsequent_mask(seq):
 class Encoder(nn.Module):
     ''' A encoder model with self attention mechanism. '''
 
-    def __init__(self, n_max_seq, n_layers=6, n_head=8, d_k=64, d_v=64, d_word_vec=512, d_model=512, d_inner_hid=1024,
+    def __init__(self, n_max_seq=200, n_layers=6, n_head=8, d_k=64, d_v=64, d_word_vec=512, d_model=512, d_inner_hid=1024,
                  dropout=0.1):
 
         super(Encoder, self).__init__()
@@ -89,7 +89,7 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     ''' A decoder model with self attention mechanism. '''
     def __init__(
-            self, n_tgt_vocab, n_max_seq, n_layers=6, n_head=8, d_k=64, d_v=64,
+            self, n_tgt_vocab, n_max_seq=100, n_layers=6, n_head=8, d_k=64, d_v=64,
             d_word_vec=512, d_model=512, d_inner_hid=1024, dropout=0.1):
 
         super(Decoder, self).__init__()
@@ -109,7 +109,7 @@ class Decoder(nn.Module):
             DecoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, dropout=dropout)
             for _ in range(n_layers)])
 
-    def forward(self, tgt_seq, tgt_pos, src_seq, enc_output, return_attns=False):
+    def forward(self, tgt_seq, tgt_pos, src_pos, enc_output, return_attns=False):
         # Word embedding look up
         dec_input = self.tgt_word_emb(tgt_seq)
 
@@ -117,11 +117,11 @@ class Decoder(nn.Module):
         dec_input += self.position_enc(tgt_pos)
 
         # Decode
-        dec_slf_attn_pad_mask = get_attn_padding_mask(tgt_seq, tgt_seq)
+        dec_slf_attn_pad_mask = get_attn_padding_mask(tgt_pos, tgt_pos)
         dec_slf_attn_sub_mask = get_attn_subsequent_mask(tgt_seq)
         dec_slf_attn_mask = torch.gt(dec_slf_attn_pad_mask + dec_slf_attn_sub_mask, 0)
 
-        dec_enc_attn_pad_mask = get_attn_padding_mask(tgt_seq, src_seq)
+        dec_enc_attn_pad_mask = get_attn_padding_mask(tgt_pos, src_pos)
 
         if return_attns:
             dec_slf_attns, dec_enc_attns = [], []
@@ -184,7 +184,7 @@ class Transformer(nn.Module):
         tgt_pos = tgt_pos[:, :-1]
 
         enc_output, *_ = self.encoder(src_seq, src_pos)
-        dec_output, *_ = self.decoder(tgt_seq, tgt_pos, src_seq, enc_output)
+        dec_output, *_ = self.decoder(tgt_seq, tgt_pos, src_pos, enc_output)
         seq_logit = self.tgt_word_proj(dec_output)
 
         return seq_logit.view(-1, seq_logit.size(2))

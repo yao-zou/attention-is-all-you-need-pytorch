@@ -1,8 +1,8 @@
 import csv
-
-import torch
 import cv2
-from torch.utils.data import Dataset
+import torch
+
+from torch.utils.data import Dataset, DataLoader
 import numpy as np
 
 from transformer.Constants import VOCABULARY, BOS, EOS, PAD
@@ -39,6 +39,8 @@ class LipReadingDataSet(Dataset):
                 break
             frame = np.transpose(frame, [2, 0, 1])
             frames.append(frame)
+        if len(frames) == 0:
+            raise ValueError("the file {} has no frames".format(mp4_name))
         return frames
 
     @staticmethod
@@ -90,3 +92,18 @@ def collate_fn(batch):
     images_position_batch = torch.from_numpy(images_position_batch)
     target_position_batch = torch.from_numpy(target_position_batch)
     return (images_list_batch, images_position_batch), (target_batch, target_position_batch), sentence_batch
+
+
+def main():
+    data_set = LipReadingDataSet("/home/disk2/zouyao/data/mvlrs/mvlrs_v1/pretrain_split_train.csv")
+    data_loader = DataLoader(data_set, batch_size=4, shuffle=True, collate_fn=collate_fn, num_workers=4)
+    i = 0
+    for (images, image_positions), (targets, target_postions), sentences in data_loader:
+        if i >= 50:
+            break
+        print(sentences)
+        i += 1
+
+
+if __name__ == "__main__":
+    main()

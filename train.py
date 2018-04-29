@@ -1,6 +1,8 @@
 '''
 This script handling the training process.
 '''
+from utils.dataset import LipReadingDataSet, collate_fn
+from torch.autograd import Variable
 
 import argparse
 import math
@@ -13,6 +15,9 @@ import torch.optim as optim
 import transformer.Constants as Constants
 from transformer.Models import Transformer
 from transformer.Optim import ScheduledOptim
+
+
+from torch.utils.data import DataLoader
 
 def get_performance(crit, pred, gold, smoothing=False, num_class=None):
     ''' Apply label smoothing if needed '''
@@ -48,8 +53,19 @@ def train_epoch(model, training_data, crit, optimizer):
             desc='  - (Training)   ', leave=False):
 
         # prepare data
-        src, tgt = batch
-        gold = tgt[0][:, 1:]
+        (src_seq, src_pos), (tgt_seq, tgt_pos), sentences = batch
+        src_seq = Variable(src_seq)
+        src_pos = Variable(src_pos)
+        tgt_seq = Variable(tgt_seq)
+        tgt_pos = Variable(tgt_pos)
+        if torch.cuda.is_available():
+            src_seq = src_seq.cuda()
+            src_pos = src_pos.cuda()
+            tgt_seq = tgt_seq.cuda()
+            tgt_pos = tgt_pos.cuda()
+        src = (src_seq, src_pos)
+        tgt = (tgt_seq, tgt_pos)
+        gold = tgt_seq[:, 1:]
 
         # forward
         optimizer.zero_grad()
@@ -83,9 +99,19 @@ def eval_epoch(model, validation_data, crit):
     for batch in tqdm(
             validation_data, mininterval=2,
             desc='  - (Validation) ', leave=False):
-
+        (src_seq, src_pos), (tgt_seq, tgt_pos), sentences = batch
         # prepare data
-        src, tgt = batch
+        src_seq = Variable(src_seq)
+        src_pos = Variable(src_pos)
+        tgt_seq = Variable(tgt_seq)
+        tgt_pos = Variable(tgt_pos)
+        if torch.cuda.is_available():
+            src_seq = src_seq.cuda()
+            src_pos = src_pos.cuda()
+            tgt_seq = tgt_seq.cuda()
+            tgt_pos = tgt_pos.cuda()
+        src = (src_seq, src_pos)
+        tgt = (tgt_seq, tgt_pos)
         gold = tgt[0][:, 1:]
 
         # forward
@@ -166,8 +192,6 @@ def main():
     ''' Main function '''
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-data', required=True)
-
     parser.add_argument('-epoch', type=int, default=10)
     parser.add_argument('-batch_size', type=int, default=64)
 
@@ -193,37 +217,18 @@ def main():
     opt = parser.parse_args()
     opt.cuda = not opt.no_cuda
     opt.d_word_vec = opt.d_model
-
-    #========= Loading Dataset =========#
-    data = torch.load(opt.data)
-    opt.max_token_seq_len = data['settings'].max_token_seq_len
+    opt.n_src_max_seq = 200
+    opt.n_tgt_max_seq = 100
 
     #========= Preparing DataLoader =========#
-    training_data = DataLoader(
-        data['dict']['src'],
-        data['dict']['tgt'],
-        src_insts=data['train']['src'],
-        tgt_insts=data['train']['tgt'],
-        batch_size=opt.batch_size,
-        cuda=opt.cuda)
+    train_dataset = LipReadingDataSet('/home/disk2/zouyao/data/mvlrs/mvlrs_v1/pretrain_split_train.csv')
+    training_data = DataLoader(train_dataset, batch_size=opt.batch_size, shuffle=True,
+                               collate_fn=collate_fn, num_workers=16)
+    val_dataset = LipReadingDataSet('/home/disk2/zouyao/data/mvlrs/mvlrs_v1/pretrain_split_val.csv')
+    validation_data = DataLoader(val_dataset, batch_size=opt.batch_size, shuffle=True,
+                                 collate_fn=collate_fn, num_workers=16)
 
-    validation_data = DataLoader(
-        data['dict']['src'],
-        data['dict']['tgt'],
-        src_insts=data['valid']['src'],
-        tgt_insts=data['valid']['tgt'],
-        batch_size=opt.batch_size,
-        shuffle=False,
-        test=True,
-        cuda=opt.cuda)
-
-    opt.src_vocab_size = training_data.src_vocab_size
-    opt.tgt_vocab_size = training_data.tgt_vocab_size
-
-    #========= Preparing Model =========#
-    if opt.embs_share_weight and training_data.src_word2idx != training_data.tgt_word2idx:
-        print('[Warning]',
-              'The src/tgt word2idx table are different but asked to share word embedding.')
+    opt.tgt_vocab_size = len(Constants.VOCABULARY)
 
     print(opt)
 
@@ -241,7 +246,6 @@ def main():
         n_head=opt.n_head,
         dropout=opt.dropout)
 
-    #print(transformer)
 
     optimizer = ScheduledOptim(
         optim.Adam(
@@ -249,14 +253,7 @@ def main():
             betas=(0.9, 0.98), eps=1e-09),
         opt.d_model, opt.n_warmup_steps)
 
-
-    def get_criterion(vocab_size):
-        ''' With PAD token zero weight '''
-        weight = torch.ones(vocab_size)
-        weight[Constants.PAD] = 0
-        return nn.CrossEntropyLoss(weight, size_average=False)
-
-    crit = get_criterion(training_data.tgt_vocab_size)
+    crit = nn.CrossEntropyLoss(ignore_index=Constants.PAD, size_average=False)
 
     if opt.cuda:
         transformer = transformer.cuda()
