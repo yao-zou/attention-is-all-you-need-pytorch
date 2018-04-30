@@ -4,6 +4,7 @@ import random
 import os
 import torch
 from torch.autograd import Variable
+from torchvision.utils import make_grid
 
 from evaluate import Evaluator
 from transformer import Constants
@@ -23,7 +24,7 @@ class SupervisedTrainer(object):
     """
 
     def __init__(self, criterion, model, optimizer, expt_dir='experiment',
-                 print_every=100, evaluate_every=500):
+                 print_every=10, evaluate_every=100):
         self._trainer = "Simple Trainer"
         self.logger = logging.getLogger(__name__)
         self.criterion = criterion
@@ -110,16 +111,20 @@ class SupervisedTrainer(object):
                 self.writer.add_scalar("data/learning_rate", lr, step)
                 log_msg += ", lr: {}".format(lr)
                 self.logger.info(log_msg)
+                batch, seq, channel, height, width = src[0].size()
+
+                image = make_grid(src[0].view(-1, channel, height, width), nrow=seq)
+                self.writer.add_image("data/images", image, step)
 
             if step % self.evaluate_every == 0 or step == total_steps:
                 self.model.eval()
                 dev_loss, dev_accuracy = self.evaluator.evaluate(self.model, dev_data_loader)
                 log_msg = "evaluate in epoch %d, step %d, Dev loss: %.4f, Accuracy: %.4f" \
-                          % (n_epoch, step, dev_loss, accuracy)
+                          % (n_epoch, step, dev_loss, dev_accuracy)
                 self.model.train(mode=True)
                 self.writer.add_scalars("data/losses",
                                         {"dev loss": dev_loss}, step)
-                self.writer.add_scalars("data/accuracies", {"dev": accuracy}, step)
+                self.writer.add_scalars("data/accuracies", {"dev": dev_accuracy}, step)
                 self.logger.info(log_msg)
                 if dev_accuracy > self.best_accuracy:
                     Checkpoint(model_state=self.model.state_dict(),
@@ -149,5 +154,4 @@ class SupervisedTrainer(object):
         log.info("steps per epoch is {}, total steps is {}".format(steps_per_epoch, total_steps))
         for epoch in range(start_epoch, num_epochs):
             self._train_epoch(epoch, data_loader, dev_data_loader)
-            self.optimizer.update_learning_rate()
         return self.model

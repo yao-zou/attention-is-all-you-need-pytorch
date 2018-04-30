@@ -1,8 +1,11 @@
 '''
 This script handling the training process.
 '''
+import logging
+import os
 from utils.dataset import LipReadingDataSet, collate_fn
-
+from utils.checkpoint import Checkpoint
+from utils.transforms import Crop
 import argparse
 import torch.nn as nn
 import torch.optim as optim
@@ -34,8 +37,6 @@ def main():
     parser.add_argument('-dropout', type=float, default=0.1)
     parser.add_argument('-proj_share_weight', action='store_true')
 
-    parser.add_argument('-log', default=None)
-    parser.add_argument('-save_model', default=None)
     parser.add_argument('-save_mode', type=str, choices=['all', 'best'], default='best')
 
     parser.add_argument('-no_cuda', action='store_true')
@@ -60,12 +61,18 @@ def main():
     opt.n_tgt_max_seq = 100
 
     # ========= Preparing DataLoader =========#
-    train_data_set = LipReadingDataSet('/home/disk2/zouyao/data/mvlrs/mvlrs_v1/pretrain_split_train_small.csv')
+    train_transforms = Crop(100, 30, 30)
+    val_transforms = Crop(100, 30, 30)
+    train_data_set = LipReadingDataSet('/home/disk2/zouyao/data/mvlrs/mvlrs_v1/pretrain_split_train_small.csv',
+                                       transforms=train_transforms)
     training_data = DataLoader(train_data_set, batch_size=opt.batch_size, shuffle=True,
-                               collate_fn=collate_fn, num_workers=16)
-    val_data_set = LipReadingDataSet('/home/disk2/zouyao/data/mvlrs/mvlrs_v1/pretrain_split_val.csv')
+                               collate_fn=collate_fn)
+    val_data_set = LipReadingDataSet('/home/disk2/zouyao/data/mvlrs/mvlrs_v1/pretrain_split_val.csv',
+                                     transforms=val_transforms)
     validation_data = DataLoader(val_data_set, batch_size=opt.batch_size, shuffle=True,
-                                 collate_fn=collate_fn, num_workers=16)
+                                 collate_fn=collate_fn)
+
+
 
     opt.tgt_vocab_size = len(Constants.VOCABULARY)
 
@@ -87,11 +94,24 @@ def main():
         n_head=opt.n_head,
         dropout=opt.dropout)
 
-    optimizer = ScheduledOptim(
-        optim.Adam(
+    base_optimizer = optim.Adam(
             transformer.get_trainable_parameters(),
-            betas=(0.9, 0.98), eps=1e-09),
-        opt.d_model, opt.n_warmup_steps)
+            betas=(0.9, 0.98), eps=1e-09, lr=1e-5)
+    optimizer = ScheduledOptim(base_optimizer, opt.d_model, opt.n_warmup_steps)
+
+    if opt.load_checkpoint is not None or opt.resume:
+        if opt.load_checkpoint is not None:
+            checkpoint_path = os.path.join(opt.expt_dir, Checkpoint.CHECKPOINT_DIR_NAME, opt.load_checkpoint)
+        else:
+            checkpoint_path = Checkpoint.get_latest_checkpoint(opt.expt_dir)
+        logging.info("loading checkpoint from {}".format(checkpoint_path))
+        resume_checkpoint = Checkpoint.load(checkpoint_path)
+        transformer.load_state_dict(resume_checkpoint.model_state)
+        optimizer.optimizer.load_state_dict(resume_checkpoint.optimizer_state)
+        optimizer.n_current_steps = resume_checkpoint.optimizer_current_step
+        start_epoch = resume_checkpoint.epoch
+    else:
+        start_epoch = 0
 
     criterion = nn.CrossEntropyLoss(ignore_index=Constants.PAD, size_average=False)
 
@@ -100,7 +120,7 @@ def main():
         criterion = criterion.cuda()
     supervised_trainer = SupervisedTrainer(criterion, transformer, optimizer)
 
-    supervised_trainer.train(training_data, validation_data, num_epochs=opt.epoch)
+    supervised_trainer.train(training_data, validation_data, num_epochs=opt.epoch, start_epoch = start_epoch)
 
 
 if __name__ == '__main__':
