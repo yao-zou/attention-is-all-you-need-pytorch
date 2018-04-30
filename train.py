@@ -40,6 +40,19 @@ def main():
 
     parser.add_argument('-no_cuda', action='store_true')
 
+    parser.add_argument('--expt_dir', action='store', dest='expt_dir', default='./experiment',
+                        help='Path to experiment directory. If load_checkpoint is True, then path to checkpoint directory has to be provided')
+    parser.add_argument('--pretrained', action='store', dest='pre_trained', default=None,
+                        help='Path to pretrained model')
+    parser.add_argument('--load_checkpoint', action='store', dest='load_checkpoint',
+                        help='The name of the checkpoint to load, usually an encoded time string')
+    parser.add_argument('--resume', action='store_true', dest='resume',
+                        default=False,
+                        help='Indicates if training has to be resumed from the latest checkpoint')
+    parser.add_argument('--log-level', dest='log_level',
+                        default='info',
+                        help='Logging level.')
+
     opt = parser.parse_args()
     opt.cuda = not opt.no_cuda
     opt.d_word_vec = opt.d_model
@@ -47,7 +60,7 @@ def main():
     opt.n_tgt_max_seq = 100
 
     # ========= Preparing DataLoader =========#
-    train_data_set = LipReadingDataSet('/home/disk2/zouyao/data/mvlrs/mvlrs_v1/pretrain_split_train.csv')
+    train_data_set = LipReadingDataSet('/home/disk2/zouyao/data/mvlrs/mvlrs_v1/pretrain_split_train_small.csv')
     training_data = DataLoader(train_data_set, batch_size=opt.batch_size, shuffle=True,
                                collate_fn=collate_fn, num_workers=16)
     val_data_set = LipReadingDataSet('/home/disk2/zouyao/data/mvlrs/mvlrs_v1/pretrain_split_val.csv')
@@ -56,7 +69,9 @@ def main():
 
     opt.tgt_vocab_size = len(Constants.VOCABULARY)
 
-    print(opt)
+    LOG_FORMAT = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
+    logging.basicConfig(format=LOG_FORMAT, level=getattr(logging, opt.log_level.upper()))
+    logging.info(opt)
 
     transformer = Transformer(
         opt.tgt_vocab_size,
@@ -85,7 +100,7 @@ def main():
         criterion = criterion.cuda()
     supervised_trainer = SupervisedTrainer(criterion, transformer, optimizer)
 
-    supervised_trainer.train(training_data, validation_data, num_epochs=20)
+    supervised_trainer.train(training_data, validation_data, num_epochs=opt.epoch)
 
 
 if __name__ == '__main__':
