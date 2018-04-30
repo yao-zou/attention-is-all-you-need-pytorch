@@ -19,7 +19,7 @@ class ScheduledOptim(object):
         self.optimizer.zero_grad()
 
     def update_learning_rate(self):
-        ''' Learning rate scheduling per step '''
+        ''' Learning rate scheduling per epoch '''
 
         self.n_current_steps += 1
         new_lr = np.power(self.d_model, -0.5) * np.min([

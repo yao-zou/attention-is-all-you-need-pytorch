@@ -23,10 +23,10 @@ class Beam(object):
         self.scores = self.tt.FloatTensor(size).zero_()
         self.all_scores = []
 
-        # The backpointers at each time-step.
+        # The backpointers at each time-epoch.
         self.prev_ks = []
 
-        # The outputs at each time-step.
+        # The outputs at each time-epoch.
         self.next_ys = [self.tt.LongTensor(size).fill_(Constants.PAD)]
         self.next_ys[0][0] = Constants.BOS
 
@@ -102,7 +102,7 @@ class Beam(object):
          Returns.
 
             1. The hypothesis
-            2. The attention at each time step.
+            2. The attention at each time epoch.
         """
         hyp = []
         for j in range(len(self.prev_ks) - 1, -1, -1):
